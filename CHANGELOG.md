@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (<https://github.com/openvinotoolkit/datumaro/pull/1594>)
 - Convert Cuboid2D annotation to/from 3D data
   (<https://github.com/openvinotoolkit/datumaro/pull/1639>)
+- Add label groups for hierarchical classification in ImageNet
+  (<https://github.com/openvinotoolkit/datumaro/pull/1645>)
 
 ### Enhancements
 - Enhance 'id_from_image_name' transform to ensure each identifier is unique
