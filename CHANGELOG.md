@@ -8,10 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## \[Unreleased\]
 
 ### New features
-- Support KITTI 3D format
-  (<https://github.com/openvinotoolkit/datumaro/pull/1619>)
-- Add PseudoLabeling transform for unlabeled dataset
-  (<https://github.com/openvinotoolkit/datumaro/pull/1594>)
 - Convert Cuboid2D annotation to/from 3D data
   (<https://github.com/openvinotoolkit/datumaro/pull/1639>)
 - Add label groups for hierarchical classification in ImageNet
@@ -20,16 +16,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Enhancements
 - Enhance 'id_from_image_name' transform to ensure each identifier is unique
   (<https://github.com/openvinotoolkit/datumaro/pull/1635>)
-- Raise an appropriate error when exporting a datumaro dataset if its subset name contains path separators.
-  (<https://github.com/openvinotoolkit/datumaro/pull/1615>)
-- Update docs for transform plugins
-  (<https://github.com/openvinotoolkit/datumaro/pull/1599>)
 - Optimize path assignment to handle point cloud in JSON without images
   (<https://github.com/openvinotoolkit/datumaro/pull/1643>)
 
 ### Bug fixes
 - Fix assertion to compare hashkeys against expected value
   (<https://github.com/openvinotoolkit/datumaro/pull/1641>)
+
+## Q4 2024 Release 1.10.0
+
+### New features
+- Support KITTI 3D format
+  (<https://github.com/openvinotoolkit/datumaro/pull/1619>, <https://github.com/openvinotoolkit/datumaro/pull/1621>)
+- Add PseudoLabeling transform for unlabeled dataset
+  (<https://github.com/openvinotoolkit/datumaro/pull/1594>)
+
+### Enhancements
+- Raise an appropriate error when exporting a datumaro dataset if its subset name contains path separators.
+  (<https://github.com/openvinotoolkit/datumaro/pull/1615>)
+- Update docs for transform plugins
+  (<https://github.com/openvinotoolkit/datumaro/pull/1599>)
+- Update ov ir model for explorer openvino launcher with CLIP ViT-L/14@336px model
+  (<https://github.com/openvinotoolkit/datumaro/pull/1603>)
+- Optimize path assignment to handle point cloud in JSON without images
+  (<https://github.com/openvinotoolkit/datumaro/pull/1643>)
+- Set TabularTransform to process clean transform in parallel
+  (<https://github.com/openvinotoolkit/datumaro/pull/1648>)
+
+### Bug fixes
+- Fix datumaro format to load visibility information from Points annotations
+  (<https://github.com/openvinotoolkit/datumaro/pull/1644>)
 
 ## Q4 2024 Release 1.9.1
 ### Enhancements
