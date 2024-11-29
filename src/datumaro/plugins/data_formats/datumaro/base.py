@@ -11,6 +11,7 @@ from datumaro.components.annotation import (
     AnnotationType,
     Bbox,
     Caption,
+    Cuboid2D,
     Cuboid3d,
     Ellipse,
     GroupType,
@@ -182,8 +183,7 @@ class JsonReader:
             pcd_info = item_desc.get("point_cloud")
             if media and pcd_info:
                 raise MediaTypeError(STR_MULTIPLE_MEDIA)
-            if pcd_info:
-                pcd_path = pcd_info.get("path")
+            if pcd_info and (pcd_path := pcd_info.get("path")):
                 point_cloud = osp.join(self._pcd_dir, self._subset, pcd_path)
 
                 related_images = None
@@ -338,6 +338,7 @@ class JsonReader:
                             points,
                             label=label_id,
                             id=ann_id,
+                            visibility=ann.get("visibility"),
                             attributes=attributes,
                             group=group,
                             object_id=object_id,
@@ -378,6 +379,18 @@ class JsonReader:
 
                 elif ann_type == AnnotationType.hash_key:
                     continue
+                elif ann_type == AnnotationType.cuboid_2d:
+                    loaded.append(
+                        Cuboid2D(
+                            list(map(tuple, points)),
+                            label=label_id,
+                            id=ann_id,
+                            attributes=attributes,
+                            group=group,
+                            object_id=object_id,
+                            z_order=z_order,
+                        )
+                    )
                 else:
                     raise NotImplementedError()
             except Exception as e:

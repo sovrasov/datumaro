@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from datumaro.components.annotation import AnnotationType, Label, LabelCategories
+from datumaro.components.contexts.importer import ImportErrorPolicy
 from datumaro.components.dataset import Dataset, StreamDataset
 from datumaro.components.dataset_base import DatasetItem
 from datumaro.components.environment import Environment
@@ -181,6 +182,12 @@ class ImagenetImporterTest:
     IMPORTER_NAME = ImagenetImporter.NAME
 
     def _create_expected_dataset(self):
+        label_categories = LabelCategories.from_iterable(
+            ("label_0", "label_1", f"{Path('label_1', 'label_1_1')}")
+        )
+        label_categories[-1].parent = "label_1"
+        label_categories.add_label_group(name="label_1", labels=["label_1_1"], group_type=0)
+
         return Dataset.from_iterable(
             [
                 DatasetItem(
@@ -203,18 +210,16 @@ class ImagenetImporterTest:
                     annotations=[Label(1)],
                 ),
             ],
-            categories={
-                AnnotationType.label: LabelCategories.from_iterable(
-                    ("label_0", "label_1", f"{Path('label_1', 'label_1_1')}")
-                ),
-            },
+            categories={AnnotationType.label: label_categories},
         )
 
     @mark_requirement(Requirements.DATUM_GENERAL_REQ)
     @pytest.mark.parametrize("dataset_cls, is_stream", [(Dataset, False), (StreamDataset, True)])
     def test_can_import(self, dataset_cls, is_stream, helper_tc):
         expected_dataset = self._create_expected_dataset()
-        dataset = dataset_cls.import_from(self.DUMMY_DATASET_DIR, self.IMPORTER_NAME)
+        dataset = dataset_cls.import_from(
+            self.DUMMY_DATASET_DIR, self.IMPORTER_NAME, error_policy=ImportErrorPolicy()
+        )
         assert dataset.is_stream == is_stream
 
         compare_datasets(helper_tc, expected_dataset, dataset, require_media=True)
@@ -240,7 +245,9 @@ class ImagenetWithSubsetDirsImporterTest(ImagenetImporterTest):
     @mark_requirement(Requirements.DATUM_GENERAL_REQ)
     @pytest.mark.parametrize("dataset_cls, is_stream", [(Dataset, False), (StreamDataset, True)])
     def test_can_import(self, dataset_cls, is_stream, helper_tc):
-        dataset = dataset_cls.import_from(self.DUMMY_DATASET_DIR, self.IMPORTER_NAME)
+        dataset = dataset_cls.import_from(
+            self.DUMMY_DATASET_DIR, self.IMPORTER_NAME, error_policy=ImportErrorPolicy()
+        )
         assert dataset.is_stream == is_stream
 
         for subset_name, subset in dataset.subsets().items():

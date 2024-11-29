@@ -9,6 +9,7 @@ import logging as log
 import os.path as osp
 import random
 import re
+import string
 from collections import Counter, defaultdict
 from copy import deepcopy
 from enum import Enum, auto
@@ -22,6 +23,8 @@ import pycocotools.mask as mask_utils
 from pandas.api.types import CategoricalDtype
 
 import datumaro.util.mask_tools as mask_tools
+from datumaro.components.algorithms.hash_key_inference.explorer import Explorer
+from datumaro.components.algorithms.hash_key_inference.hashkey_util import calculate_hamming
 from datumaro.components.annotation import (
     AnnotationType,
     Bbox,
@@ -40,6 +43,7 @@ from datumaro.components.annotation import (
     TabularCategories,
 )
 from datumaro.components.cli_plugin import CliPlugin
+from datumaro.components.dataset import Dataset
 from datumaro.components.dataset_base import DEFAULT_SUBSET_NAME, DatasetInfo, DatasetItem, IDataset
 from datumaro.components.errors import (
     AnnotationTypeError,
@@ -60,8 +64,8 @@ from datumaro.components.errors import (
     UndefinedAttribute,
     UndefinedLabel,
 )
-from datumaro.components.media import Image, TableRow
-from datumaro.components.transformer import ItemTransform, Transform
+from datumaro.components.media import Image, TableRow, VideoFrame
+from datumaro.components.transformer import ItemTransform, TabularTransform, Transform
 from datumaro.util import NOTSET, filter_dict, parse_json_file, parse_str_enum_value, take_by
 from datumaro.util.annotation_util import find_group_leader, find_instances
 from datumaro.util.tabular_util import emoji_pattern
@@ -592,12 +596,94 @@ class RandomSplit(Transform, CliPlugin):
 
 class IdFromImageName(ItemTransform, CliPlugin):
     """
-    Renames items in the dataset using image file name (without extension).
+    Renames items in the dataset based on the image file name, excluding the extension.|n
+    When 'ensure_unique' is enabled, a random suffix is appened to ensure each identifier is unique
+    in cases where the image name is not distinct. By default, the random suffix is three characters long,
+    but this can be adjusted with the 'suffix_length' parameter.|n
+    |n
+    Examples:|n
+    |n
+    |s|s- Renames items without duplication check:|n
+
+      .. code-block::
+
+    |s|s|s|s%(prog)s|n
+    |n
+    |s|s- Renames items with duplication check:|n
+
+    .. code-block::
+
+    |s|s|s|s%(prog)s --ensure_unique|n
+    |n
+    |s|s- Renames items with duplication check and alters the suffix length(default: 3):|n
+
+    .. code-block::
+
+    |s|s|s|s%(prog)s --ensure_unique --suffix_length 2
     """
+
+    DEFAULT_RETRY = 1000
+    SUFFIX_LETTERS = string.ascii_lowercase + string.digits
+
+    @classmethod
+    def build_cmdline_parser(cls, **kwargs):
+        parser = super().build_cmdline_parser(**kwargs)
+        parser.add_argument(
+            "-u",
+            "--ensure_unique",
+            action="store_true",
+            help="Appends a random suffix to ensure each identifier is unique if the image name is duplicated.",
+        )
+        parser.add_argument(
+            "-l",
+            "--suffix_length",
+            type=int,
+            default=3,
+            help="Alters the length of the random suffix if the 'ensure_unique' is enabled.",
+        )
+
+        return parser
+
+    def __init__(self, extractor, ensure_unique: bool = False, suffix_length: int = 3):
+        super().__init__(extractor)
+        self._length = "parent"
+        self._ensure_unique = ensure_unique
+        self._names: set[str] = set()
+        self._suffix_length = suffix_length
+        if suffix_length <= 0:
+            raise ValueError(
+                f"The 'suffix_length' must be greater than 0. Received: {suffix_length}."
+            )
+        self._max_retry = min(
+            self.DEFAULT_RETRY, pow(len(self.SUFFIX_LETTERS), self._suffix_length)
+        )
+
+    def _add_unique_suffix(self, name):
+        count = 0
+        while name in self._names:
+            suffix = "".join(
+                random.choices(self.SUFFIX_LETTERS, k=self._suffix_length)  # nosec B311
+            )
+            new_name = f"{name}__{suffix}"
+            if new_name not in self._names:
+                name = new_name
+                break
+            count += 1
+            if count == self._max_retry:
+                raise Exception(
+                    f"Too many duplicate names. Failed to generate a unique suffix after {self._max_retry} attempts."
+                )
+
+        self._names.add(name)
+        return name
 
     def transform_item(self, item):
         if isinstance(item.media, Image) and hasattr(item.media, "path"):
             name = osp.splitext(osp.basename(item.media.path))[0]
+            if isinstance(item.media, VideoFrame):
+                name += f"_frame-{item.media.index}"
+            if self._ensure_unique:
+                name = self._add_unique_suffix(name)
             return self.wrap_item(item, id=name)
         else:
             log.debug("Can't change item id for item '%s': " "item has no path info" % item.id)
@@ -1348,9 +1434,21 @@ class RemoveAttributes(ItemTransform):
 
 class Correct(Transform, CliPlugin):
     """
-    Correct the dataset from a validation report.
-    A user can should feed into validation_reports.json from validator to correct the dataset.
-    This helps to refine the dataset by rejecting undefined labels, missing annotations, and outliers.
+    This class provides functionality to correct and refine a dataset based on a validation report.|n
+    It processes a validation report (typically in JSON format) to identify and rectify various |n
+    dataset issues, such as undefined labels, missing annotations, outliers, empty labels/captions,|n
+    and unnecessary characters in captions. The correction process includes:|n
+    |n
+    - Adding missing labels and attributes.|n
+    - Removing or adjusting annotations with invalid or anomalous values.|n
+    - Filling in missing labels and captions with appropriate values.|n
+    - Removing unnecessary characters from text-based annotations like captions.|n
+    - Handling outliers by capping values within specified bounds.|n
+    - Updating dataset categories and annotations according to the corrections.|n
+    |n
+    The class is designed to be used as part of a command-line interface (CLI) and can be |n
+    configured with different validation reports. It integrates with the dataset extraction |n
+    process, ensuring that corrections are applied consistently across the dataset.|n
     """
 
     @classmethod
@@ -1746,13 +1844,15 @@ class Correct(Transform, CliPlugin):
 
 class AstypeAnnotations(ItemTransform):
     """
-    Enables the conversion of annotation types for the categories and individual items within a dataset.|n
+    Converts the types of annotations within a dataset based on a specified mapping.|n
     |n
-    Based on a specified mapping, it transforms the annotation types,|n
-    changing them to 'Label' if they are categorical, and to 'Caption' if they are of type string, float, or integer.|n
+    This transform changes annotations to 'Label' if they are categorical, and to 'Caption'
+    if they are of type string, float, or integer. This is particularly useful when working
+    with tabular data that needs to be converted into a format suitable for specific machine
+    learning tasks.|n
     |n
     Examples:|n
-        - Convert type of `title` annotation|n
+        - Converts the type of a `title` annotation:|n
 
         .. code-block::
 
@@ -1847,7 +1947,7 @@ class AstypeAnnotations(ItemTransform):
         return self.wrap_item(item, annotations=annotations)
 
 
-class Clean(ItemTransform):
+class Clean(TabularTransform):
     """
     A class used to refine the media items in a dataset.|n
     |n
@@ -1866,8 +1966,10 @@ class Clean(ItemTransform):
     def __init__(
         self,
         extractor: IDataset,
+        batch_size: int = 1,
+        num_workers: int = 0,
     ):
-        super().__init__(extractor)
+        super().__init__(extractor, batch_size, num_workers)
 
         self._outlier_value = {}
         self._missing_value = {}
@@ -1957,7 +2059,7 @@ class Clean(ItemTransform):
             or item.media.table.dtype(col) is int
         ]
 
-        df[str_cols] = df[str_cols].applymap(lambda x: self.remove_unnecessary_char(x))
+        df[str_cols] = df[str_cols].map(lambda x: self.remove_unnecessary_char(x))
 
         if not (self._outlier_value):
             self.check_outlier(media.table.data[float_cols + int_cols], float_cols + int_cols)
@@ -2004,3 +2106,64 @@ class Clean(ItemTransform):
             refined_annotations.append(ann)
 
         return self.wrap_item(item, media=refined_media, annotations=refined_annotations)
+
+
+class PseudoLabeling(ItemTransform):
+    """
+    A class used to assign pseudo-labels to items in a dataset based on
+    their similarity to predefined labels.|n
+    |n
+    This class leverages hashing techniques to compute the similarity
+    between dataset items and a set of predefined labels.|n
+    It assigns the most similar label as a pseudo-label to each item.
+    This is particularly useful in semi-supervised
+    learning scenarios where some labels are missing or uncertain.|n
+    |n
+    Attributes:|n
+        - extractor : IDataset|n
+        The dataset extractor that provides access to dataset items and their annotations.|n
+        - labels : Optional[List[str]]|n
+        A list of label names to be used for pseudo-labeling.
+        If not provided, all available labels in the dataset will be used.|n
+        - explorer : Optional[Explorer]|n
+        An optional Explorer object used to compute hash keys for items and labels.
+        If not provided, a new Explorer will be created.|n
+    """
+
+    def __init__(
+        self,
+        extractor: IDataset,
+        labels: Optional[List[str]] = None,
+        explorer: Optional[Explorer] = None,
+    ):
+        super().__init__(extractor)
+
+        self._categories = self._extractor.categories()
+        self._labels = labels
+        self._explorer = explorer
+        self._label_indices = self._categories[AnnotationType.label]._indices
+
+        if not self._labels:
+            self._labels = list(self._label_indices.keys())
+        if not self._explorer:
+            self._explorer = Explorer(Dataset.from_iterable(list(self._extractor)))
+
+        label_hashkeys = [
+            np.unpackbits(self._explorer._get_hash_key_from_text_query(label).hash_key, axis=-1)
+            for label in self._labels
+        ]
+        self._label_hashkeys = np.stack(label_hashkeys, axis=0)
+
+    def categories(self):
+        return self._categories
+
+    def transform_item(self, item: DatasetItem):
+        hashkey_ = np.unpackbits(self._explorer._get_hash_key_from_item_query(item).hash_key)
+        logits = calculate_hamming(hashkey_, self._label_hashkeys)
+        inverse_distances = 1.0 / (logits + 1e-6)
+        probs = inverse_distances / np.sum(inverse_distances)
+        ind = np.argsort(probs)[::-1]
+
+        pseudo = np.array(self._labels)[ind][0]
+        pseudo_annotation = [Label(label=self._label_indices[pseudo])]
+        return self.wrap_item(item, annotations=pseudo_annotation)

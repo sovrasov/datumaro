@@ -4,6 +4,53 @@ Release Notes
 .. toctree::
    :maxdepth: 1
 
+v1.10.0 (2024 Q4)
+
+New features
+^^^^^^^^^^^^
+- Support KITTI 3D format
+- Add PseudoLabeling transform for unlabeled dataset
+
+Enhancements
+^^^^^^^^^^^^
+- Raise an appropriate error when exporting a datumaro dataset if its subset name contains path separators.
+- Update docs for transform plugins
+- Update ov ir model for explorer openvino launcher with CLIP ViT-L/14@336px model
+- Optimize path assignment to handle point cloud in JSON without images
+- Set TabularTransform to process clean transform in parallel
+
+Bug fixes
+^^^^^^^^^
+- Fix datumaro format to load visibility information from Points annotations
+
+v1.9.1 (2024 Q3)
+----------------
+
+Enhancements
+^^^^^^^^^^^^
+- Support multiple labels for kaggle format
+- Use DataFrame.map instead of DataFrame.applymap
+
+Bug fixes
+^^^^^^^^^
+- Fix StreamDataset merging when importing in eager mode
+
+v1.9.0 (2024 Q3)
+----------------
+
+New features
+^^^^^^^^^^^^
+- Add a new CLI command: datum format
+- Support language dataset for DmTorchDataset
+
+Enhancements
+^^^^^^^^^^^^
+- Change _Shape to Shape and add comments for subclasses of Shape
+
+Bug fixes
+^^^^^^^^^
+- Fix KITTI-3D importer and exporter
+
 v1.8.0 (2024 Q3)
 ----------------
 

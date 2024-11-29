@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import logging as log
+import os
 import os.path as osp
 import random
 from unittest import TestCase
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
@@ -14,6 +16,7 @@ from pandas.api.types import CategoricalDtype
 
 import datumaro.plugins.transforms as transforms
 import datumaro.util.mask_tools as mask_tools
+from datumaro.components.algorithms.hash_key_inference.explorer import Explorer
 from datumaro.components.annotation import (
     AnnotationType,
     Bbox,
@@ -31,10 +34,10 @@ from datumaro.components.annotation import (
     Tabular,
     TabularCategories,
 )
-from datumaro.components.dataset import Dataset
+from datumaro.components.dataset import Dataset, eager_mode
 from datumaro.components.dataset_base import DatasetItem
 from datumaro.components.errors import AnnotationTypeError
-from datumaro.components.media import Image, Table, TableRow
+from datumaro.components.media import Image, Table, TableRow, Video, VideoFrame
 
 from ..requirements import Requirements, mark_bug, mark_requirement
 
@@ -416,26 +419,6 @@ class TransformsTest(TestCase):
         )
 
         actual = transforms.ShapesToBoxes(source_dataset)
-        compare_datasets(self, target_dataset, actual)
-
-    @mark_requirement(Requirements.DATUM_GENERAL_REQ)
-    def test_id_from_image(self):
-        source_dataset = Dataset.from_iterable(
-            [
-                DatasetItem(id=1, media=Image.from_file(path="path.jpg")),
-                DatasetItem(id=2),
-                DatasetItem(id=3, media=Image.from_numpy(data=np.ones([5, 5, 3]))),
-            ]
-        )
-        target_dataset = Dataset.from_iterable(
-            [
-                DatasetItem(id="path", media=Image.from_file(path="path.jpg")),
-                DatasetItem(id=2),
-                DatasetItem(id=3, media=Image.from_numpy(data=np.ones([5, 5, 3]))),
-            ]
-        )
-
-        actual = transforms.IdFromImageName(source_dataset)
         compare_datasets(self, target_dataset, actual)
 
     @mark_requirement(Requirements.DATUM_GENERAL_REQ)
@@ -1225,6 +1208,84 @@ class ReindexAnnotationsTest:
         )
 
 
+class IdFromImageNameTest:
+    @pytest.fixture
+    def fxt_dataset(self, n_labels=3, n_anns=5, n_items=7) -> Dataset:
+        video = Video("video.mp4")
+        video._frame_size = MagicMock(return_value=(32, 32))
+        video.get_frame_data = MagicMock(return_value=np.ndarray((32, 32, 3), dtype=np.uint8))
+        return Dataset.from_iterable(
+            [
+                DatasetItem(id=1, media=Image.from_file(path="path1.jpg")),
+                DatasetItem(id=2, media=Image.from_file(path="path1.jpg")),
+                DatasetItem(id=3, media=Image.from_file(path="path1.jpg")),
+                DatasetItem(id=4, media=VideoFrame(video, index=30)),
+                DatasetItem(id=5, media=VideoFrame(video, index=30)),
+                DatasetItem(id=6, media=VideoFrame(video, index=60)),
+                DatasetItem(id=7),
+                DatasetItem(id=8, media=Image.from_numpy(data=np.ones([5, 5, 3]))),
+            ]
+        )
+
+    @mark_requirement(Requirements.DATUM_GENERAL_REQ)
+    @pytest.mark.parametrize("ensure_unique", [True, False])
+    def test_id_from_image(self, fxt_dataset, ensure_unique):
+        source_dataset: Dataset = fxt_dataset
+        actual_dataset = transforms.IdFromImageName(source_dataset, ensure_unique=ensure_unique)
+
+        unique_names: set[str] = set()
+        for src, actual in zip(source_dataset, actual_dataset):
+            if not isinstance(src.media, Image) or not hasattr(src.media, "path"):
+                src == actual
+            else:
+                if isinstance(src.media, VideoFrame):
+                    expected_id = f"video_frame-{src.media.index}"
+                else:
+                    expected_id = os.path.splitext(src.media.path)[0]
+                if ensure_unique:
+                    assert actual.id.startswith(expected_id)
+                    assert actual.wrap(id=src.id) == src
+                    assert actual.id not in unique_names
+                    unique_names.add(actual.id)
+                else:
+                    assert src.wrap(id=expected_id) == actual
+
+    @mark_requirement(Requirements.DATUM_GENERAL_REQ)
+    def test_id_from_image_wrong_suffix_length(self, fxt_dataset):
+        with pytest.raises(ValueError) as e:
+            transforms.IdFromImageName(fxt_dataset, ensure_unique=True, suffix_length=0)
+        assert str(e.value).startswith("The 'suffix_length' must be greater than 0.")
+
+    @mark_requirement(Requirements.DATUM_GENERAL_REQ)
+    def test_id_from_image_too_many_duplication(self, fxt_dataset):
+        with patch("datumaro.plugins.transforms.IdFromImageName.DEFAULT_RETRY", 1), patch(
+            "datumaro.plugins.transforms.IdFromImageName.SUFFIX_LETTERS", "a"
+        ), pytest.raises(Exception) as e:
+            with eager_mode():
+                fxt_dataset.transform(
+                    "id_from_image_name",
+                    ensure_unique=True,
+                    suffix_length=1,
+                )
+        assert str(e.value).startswith("Too many duplicate names.")
+
+    @mark_requirement(Requirements.DATUM_GENERAL_REQ)
+    @pytest.mark.parametrize(
+        "args,ensure_unique,suffix_length",
+        [
+            ([], False, 3),
+            (["--ensure_unique", "--suffix_length", "2"], True, 2),
+        ],
+        ids=["default", "ensure_unique"],
+    )
+    def test_parser(self, args, ensure_unique, suffix_length):
+        parser = transforms.IdFromImageName.build_cmdline_parser()
+        args = parser.parse_args(args)
+
+        assert hasattr(args, "ensure_unique") and args.ensure_unique == ensure_unique
+        assert hasattr(args, "suffix_length") and args.suffix_length == suffix_length
+
+
 class AstypeAnnotationsTest(TestCase):
     def setUp(self):
         self.table = Table.from_list(
@@ -1673,3 +1734,53 @@ class CleanTest(TestCase):
             result_item = result.__getitem__(i)
             self.assertEqual(expected_item.annotations, result_item.annotations)
             self.assertEqual(expected_item.media, result_item.media)
+
+
+class PseudoLabelingTest(TestCase):
+    def setUp(self):
+        self.data_path = get_test_asset_path("explore_dataset")
+        self.categories = ["bird", "cat", "dog", "monkey"]
+        self.source = Dataset.from_iterable(
+            [
+                DatasetItem(
+                    id=0,
+                    media=Image.from_file(path=os.path.join(self.data_path, "dog", "0.JPEG")),
+                ),
+                DatasetItem(
+                    id=1,
+                    media=Image.from_file(path=os.path.join(self.data_path, "cat", "0.JPEG")),
+                ),
+            ],
+            categories=self.categories,
+        )
+
+    @mark_requirement(Requirements.DATUM_GENERAL_REQ)
+    def test_transform_pseudolabeling_with_labels(self):
+        dataset = self.source
+        labels = self.categories
+        explorer = Explorer(dataset)
+        result = dataset.transform("pseudo_labeling", labels=labels, explorer=explorer)
+
+        label_indices = dataset.categories()[AnnotationType.label]._indices
+        for item, expected in zip(result, ["dog", "cat"]):
+            self.assertEqual(item.annotations[0].label, label_indices[expected])
+
+    @mark_requirement(Requirements.DATUM_GENERAL_REQ)
+    def test_transform_pseudolabeling_without_labels(self):
+        dataset = self.source
+        explorer = Explorer(dataset)
+        result = dataset.transform("pseudo_labeling", explorer=explorer)
+
+        label_indices = dataset.categories()[AnnotationType.label]._indices
+        for item, expected in zip(result, ["dog", "cat"]):
+            self.assertEqual(item.annotations[0].label, label_indices[expected])
+
+    @mark_requirement(Requirements.DATUM_GENERAL_REQ)
+    def test_transform_pseudolabeling_without_explorer(self):
+        dataset = self.source
+        labels = self.categories
+        result = dataset.transform("pseudo_labeling", labels=labels)
+
+        label_indices = dataset.categories()[AnnotationType.label]._indices
+        for item, expected in zip(result, ["dog", "cat"]):
+            self.assertEqual(item.annotations[0].label, label_indices[expected])
