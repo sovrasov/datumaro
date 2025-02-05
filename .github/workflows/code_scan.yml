@@ -126,8 +126,8 @@ jobs:
         run: pip install bandit[sarif]
 
       - name: Bandit Scanning
-        run: bandit -r -c .ci/ipas_default.config . -f sarif -o bandit-scan-results.sarif
-        
+        run: bandit -r -c .ci/ipas_default.config . -f sarif -o bandit-results.sarif
+
       - name: Upload SARIF file
         if: ${{ always() }}
         uses: github/codeql-action/upload-sarif@17a820bf2e43b47be2c72b39cc905417bc1ab6d0 # v3.28.8
