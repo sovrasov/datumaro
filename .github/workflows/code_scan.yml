@@ -41,7 +41,7 @@ jobs:
           pip-compile -o trivy_input/core/requirements.txt requirements-default.txt
 
           mkdir -p trivy_input/develop
-          pip-compile -o trivy_input/develop/requirements.txt requirements-dev.txt          
+          pip-compile -o trivy_input/develop/requirements.txt requirements-dev.txt
 
           mkdir -p trivy_input/base
           pip-compile -o trivy_input/base/requirements.txt requirements.txt
