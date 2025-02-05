@@ -152,7 +152,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ "c-cpp", "python", "actions" ]
+        language: ["c-cpp", "python", "actions"]
 
     steps:
       - name: Checkout repository
@@ -163,7 +163,6 @@ jobs:
         uses: github/codeql-action/init@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169 # v3.28.0
         with:
           languages: ${{ matrix.language }}
-      
       - name: Setup Python
         uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
@@ -173,7 +172,6 @@ jobs:
         run: |
           pip install build
           python -m build
-      
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169 # v3.28.0
         with:
