@@ -28,8 +28,8 @@ jobs:
 
       - name: Freeze dependencies
         run: |
-          mkdir -p trivy_input/dev/docker/segment-anything/
-          pip-compile -o trivy_input/dev/docker/segment-anything/requirements.txt docker/segment-anything/requirements.txt
+          mkdir -p trivy_input/docker/segment-anything/
+          pip-compile -o trivy_input/docker/segment-anything/requirements.txt docker/segment-anything/requirements.txt
 
           mkdir -p trivy_input/docs
           pip-compile -o trivy_input/docs/requirements.txt docs/requirements.txt
@@ -40,8 +40,8 @@ jobs:
           mkdir -p trivy_input/default
           pip-compile -o trivy_input/core/requirements.txt requirements-default.txt
 
-          mkdir -p trivy_input/dev
-          pip-compile -o trivy_input/dev/requirements.txt requirements-dev.txt          
+          mkdir -p trivy_input/develop
+          pip-compile -o trivy_input/develop/requirements.txt requirements-dev.txt          
 
           mkdir -p trivy_input/base
           pip-compile -o trivy_input/base/requirements.txt requirements.txt
