@@ -30,25 +30,25 @@ jobs:
         run: |
           mkdir -p trivy_input/dev/docker/segment-anything/
           pip-compile -o trivy_input/dev/docker/segment-anything/requirements.txt docker/segment-anything/requirements.txt
-          
+
           mkdir -p trivy_input/docs
           pip-compile -o trivy_input/docs/requirements.txt docs/requirements.txt
-          
+
           mkdir -p trivy_input/core
           pip-compile -o trivy_input/core/requirements.txt requirements-core.txt
 
           mkdir -p trivy_input/default
           pip-compile -o trivy_input/core/requirements.txt requirements-default.txt
-          
+
           mkdir -p trivy_input/dev
           pip-compile -o trivy_input/dev/requirements.txt requirements-dev.txt          
-          
+
           mkdir -p trivy_input/base
           pip-compile -o trivy_input/base/requirements.txt requirements.txt
-          
+
           mkdir -p trivy_input/tests
           pip-compile -o trivy_input/tests/requirements.txt tests/requirements.txt
-          
+
       - name: Run Trivy Scan (vuln)
         uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
         with:
@@ -77,7 +77,7 @@ jobs:
         if: always()
         with:
           name: python-deps-list
-          path: '${{ github.workspace }}/trivy_input'
+          path: "${{ github.workspace }}/trivy_input"
           retention-days: 7
 
   Trivy-Scan-Misconfig:
@@ -122,24 +122,24 @@ jobs:
         uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
           python-version: "3.10"
-      - name: Install dependencies
-        run: python -m pip install tox
+      - name: Install bandit
+        run: pip install bandit[sarif]
 
       - name: Bandit Scanning
-        run: tox -e bandit-scan
-
+        run: bandit -r -c .ci/ipas_default.config . -f sarif -o bandit-scan-results.sarif
+        
       - name: Upload SARIF file
         if: ${{ always() }}
         uses: github/codeql-action/upload-sarif@17a820bf2e43b47be2c72b39cc905417bc1ab6d0 # v3.28.8
         with:
-          sarif_file: .tox/bandit-results.sarif
+          sarif_file: bandit-results.sarif
 
       - name: Upload Bandit artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.0
         with:
           name: bandit-results
-          path: .tox/bandit-results.sarif
+          path: bandit-results.sarif
           retention-days: 7
 
   CodeQL:
